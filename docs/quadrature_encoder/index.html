@@ -1,0 +1,473 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { Play, Pause, RotateCcw, RotateCw, Settings2 } from 'lucide-react';
+
+export default function App() {
+  // Physical parameters
+  const numSlits = 36; // 10 degrees per slit cycle (5deg open, 5deg closed)
+  const degPerCycle = 360 / numSlits;
+  const offsetB = degPerCycle / 4; // 90 electrical degrees offset (2.5 physical degrees)
+  
+  // State
+  const [angle, setAngle] = useState(0); // in degrees
+  const [isSpinning, setIsSpinning] = useState(false);
+  const [speedMultiplier, setSpeedMultiplier] = useState(1); // 1x default
+  const [direction, setDirection] = useState(1); // 1 for CW, -1 for CCW
+  const [pulses, setPulses] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  
+  // Refs for animation and logic state
+  const requestRef = useRef();
+  const historyRef = useRef([]); // Stores waveform history
+  const lastStatesRef = useRef({ A: 0, B: 0, Z: 0 });
+  const exactAngleRef = useRef(0);
+  const canvasRef = useRef(null);
+  const svgRef = useRef(null);
+  const dragState = useRef({ lastMouseAngle: 0 });
+
+  // Derive logic states based on current angle
+  // Sensor is placed at 3 o'clock (0 degrees on standard unit circle)
+  // As disc rotates by 'angle', the point at the sensor is effectively at '-angle' on the disc
+  const getSignals = (currentAngle) => {
+    // Both A and B are on the SAME track now. 
+    // Sensor A is at 0 degrees. Sensor B is at offsetB (2.5 degrees CW).
+    const A_disc_pos = (0 - currentAngle);
+    const B_disc_pos = (offsetB - currentAngle);
+    const Z_disc_pos = (0 - currentAngle); // Z at 0 on inner track
+
+    const normalize = (ang) => ((ang % degPerCycle) + degPerCycle) % degPerCycle;
+    
+    // A and B Track (Outer)
+    const A = normalize(A_disc_pos) < (degPerCycle / 2) ? 1 : 0;
+    const B = normalize(B_disc_pos) < (degPerCycle / 2) ? 1 : 0;
+    
+    // Z Track (Inner - only 1 slit)
+    const normZ = ((Z_disc_pos % 360) + 360) % 360;
+    const Z = normZ < (degPerCycle / 2) ? 1 : 0;
+
+    return { A, B, Z };
+  };
+
+  // Drag logic
+  const getAngleFromEvent = (e) => {
+    if (!svgRef.current) return 0;
+    const rect = svgRef.current.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    return Math.atan2(clientY - cy, clientX - cx) * (180 / Math.PI);
+  };
+
+  const handlePointerDown = (e) => {
+    setIsDragging(true);
+    setIsSpinning(false);
+    dragState.current.lastMouseAngle = getAngleFromEvent(e);
+  };
+
+  useEffect(() => {
+    const handlePointerMove = (e) => {
+      if (!isDragging) return;
+      const currentMouseAngle = getAngleFromEvent(e);
+      let delta = currentMouseAngle - dragState.current.lastMouseAngle;
+      
+      // Handle wrapping across the -180/180 boundary
+      if (delta > 180) delta -= 360;
+      if (delta < -180) delta += 360;
+
+      exactAngleRef.current += delta;
+      setAngle(exactAngleRef.current);
+      dragState.current.lastMouseAngle = currentMouseAngle;
+    };
+
+    const handlePointerUp = () => setIsDragging(false);
+
+    if (isDragging) {
+      window.addEventListener('pointermove', handlePointerMove);
+      window.addEventListener('pointerup', handlePointerUp);
+      window.addEventListener('touchmove', handlePointerMove, { passive: false });
+      window.addEventListener('touchend', handlePointerUp);
+    }
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('touchmove', handlePointerMove);
+      window.removeEventListener('touchend', handlePointerUp);
+    };
+  }, [isDragging]);
+
+  // Main animation and logic loop
+  const updateLoop = () => {
+    // 1. Update Angle if spinning
+    if (isSpinning) {
+      const actualSpeed = speedMultiplier * 0.25; // 0.25 deg/frame is 1x speed
+      exactAngleRef.current += (actualSpeed * direction);
+      setAngle(exactAngleRef.current);
+    }
+
+    // 2. Read Sensors
+    const { A, B, Z } = getSignals(exactAngleRef.current);
+
+    // 3. Quadrature Decoding Logic (Update Counter)
+    const lastA = lastStatesRef.current.A;
+    const lastB = lastStatesRef.current.B;
+    
+    // Check for state change on A
+    if (A !== lastA) {
+      // If A changed, we compare new A to OLD B (or new B depending on exact transition)
+      // Standard quadrature counting logic:
+      if (A !== B) {
+        setPulses(p => p + 1);
+      } else {
+        setPulses(p => p - 1);
+      }
+    }
+    // Check for state change on B (for 4x resolution, we'd do both, but here we just update 1x/2x for simplicity)
+    // We will do full 4x decoding for accurate counting
+    else if (B !== lastB) {
+      if (A === B) {
+        setPulses(p => p + 1);
+      } else {
+        setPulses(p => p - 1);
+      }
+    }
+
+    lastStatesRef.current = { A, B };
+
+    // 4. Update Graph History
+    historyRef.current.push({ A, B, Z });
+    if (historyRef.current.length > 400) {
+      historyRef.current.shift(); // Keep array at fixed size
+    }
+
+    // 5. Draw Oscilloscope
+    drawScope();
+
+    // 6. Loop
+    requestRef.current = requestAnimationFrame(updateLoop);
+  };
+
+  useEffect(() => {
+    requestRef.current = requestAnimationFrame(updateLoop);
+    return () => cancelAnimationFrame(requestRef.current);
+  }, [isSpinning, speedMultiplier, direction]); // Re-bind if dependencies change
+
+  const drawScope = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width;
+    const height = canvas.height;
+
+    // Clear background
+    ctx.fillStyle = '#1e293b'; // slate-800
+    ctx.fillRect(0, 0, width, height);
+
+    // Draw Grid
+    ctx.strokeStyle = '#334155'; // slate-700
+    ctx.lineWidth = 1;
+    for (let i = 0; i < width; i += 40) {
+      ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, height); ctx.stroke();
+    }
+    for (let i = 0; i < height; i += 40) {
+      ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(width, i); ctx.stroke();
+    }
+
+    const history = historyRef.current;
+    if (history.length === 0) return;
+
+    // Draw Vertical Transition Lines FIRST
+    const startX = width - history.length;
+    for (let i = 1; i < history.length; i++) {
+      const x = startX + i;
+      if (history[i].A !== history[i-1].A) {
+        ctx.strokeStyle = '#ef4444'; ctx.globalAlpha = 0.5; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
+      }
+      if (history[i].B !== history[i-1].B) {
+        ctx.strokeStyle = '#3b82f6'; ctx.globalAlpha = 0.5; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
+      }
+      if (history[i].Z !== history[i-1].Z) {
+        ctx.strokeStyle = '#22c55e'; ctx.globalAlpha = 0.5; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1.0;
+
+    const drawSignal = (trackName, color, yOffset, amplitude) => {
+      // Draw High/Low baselines
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = 0.3;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, yOffset); ctx.lineTo(width, yOffset); // Low
+      ctx.moveTo(0, yOffset - amplitude); ctx.lineTo(width, yOffset - amplitude); // High
+      ctx.stroke();
+      
+      // Draw actual signal line
+      ctx.globalAlpha = 1.0;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      
+      for (let i = 0; i < history.length; i++) {
+        const val = history[i][trackName];
+        const x = startX + i;
+        const y = yOffset - (val * amplitude);
+        
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+
+      // Label
+      ctx.fillStyle = color;
+      ctx.font = '16px monospace';
+      ctx.fillText(`CH ${trackName}`, 10, yOffset - amplitude + 15);
+      
+      // High/Low micro labels
+      ctx.font = '10px monospace';
+      ctx.globalAlpha = 0.6;
+      ctx.fillText('HI', 10, yOffset - amplitude - 4);
+      ctx.fillText('LO', 10, yOffset + 12);
+      ctx.globalAlpha = 1.0;
+    };
+
+    // Draw A, B, Z signals
+    drawSignal('A', '#ef4444', 70, 40);   // Red
+    drawSignal('B', '#3b82f6', 140, 40);  // Blue
+    drawSignal('Z', '#22c55e', 210, 40);  // Green
+  };
+
+  // SVG Drawing Helpers
+  const renderTrack = (radius, dashLength, offsetAngle = 0) => (
+    <circle
+      cx="200"
+      cy="200"
+      r={radius}
+      stroke="#cbd5e1" // slate-300 for the slits
+      strokeWidth="24"
+      strokeDasharray={`${dashLength} ${dashLength}`}
+      fill="none"
+      transform={`rotate(${offsetAngle} 200 200)`}
+    />
+  );
+
+  const curSignals = getSignals(angle);
+
+  return (
+    <div className="min-h-screen bg-slate-900 text-slate-200 p-6 font-sans flex flex-col items-center">
+      <div className="max-w-6xl w-full">
+        
+        {/* Header */}
+        <div className="mb-8 border-b border-slate-700 pb-4">
+          <h1 className="text-3xl font-bold text-white mb-2">Quadrature Encoder Simulator</h1>
+          <p className="text-slate-400">Interactive robotics tool for demonstrating A, B, and Index (Z) channels, phase shifting, and step counting.</p>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          
+          {/* Left Column: Mechanical View */}
+          <div className="bg-slate-800 rounded-xl p-6 shadow-xl border border-slate-700">
+            <h2 className="text-xl font-semibold text-white mb-4 flex items-center">
+              <Settings2 className="w-5 h-5 mr-2" /> Mechanical Disc View
+            </h2>
+            
+            <div 
+              className={`relative flex justify-center items-center h-[400px] bg-slate-900 rounded-lg overflow-hidden border border-slate-700 ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+              onPointerDown={handlePointerDown}
+              style={{ touchAction: 'none' }}
+            >
+              {isDragging && (
+                <div className="absolute top-4 bg-indigo-600 text-white text-xs px-3 py-1 rounded-full z-10 shadow-lg pointer-events-none">
+                  Dragging Disc...
+                </div>
+              )}
+              
+              {/* SVG Encoder Disc */}
+              <svg width="400" height="400" className="absolute" ref={svgRef}>
+                {/* Background Disc */}
+                <circle cx="200" cy="200" r="150" fill="#0f172a" stroke="#334155" strokeWidth="2" />
+                
+                {/* Rotating Group */}
+                <g transform={`rotate(${angle} 200 200)`}>
+                  {/* Track A & B: Combined Outer Track */}
+                  {renderTrack(120, (Math.PI * 2 * 120) / (numSlits * 2), 0)}
+                  
+                  {/* Track Z: Inner (Index pulse, only 1 slit) */}
+                  <circle
+                    cx="200"
+                    cy="200"
+                    r="90"
+                    stroke="#cbd5e1"
+                    strokeWidth="24"
+                    strokeDasharray={`${(Math.PI * 2 * 90) / (numSlits * 2)} 1000`}
+                    fill="none"
+                  />
+                  
+                  {/* Center Hub */}
+                  <circle cx="200" cy="200" r="20" fill="#334155" />
+                  <circle cx="200" cy="200" r="8" fill="#0f172a" />
+                </g>
+
+                {/* Optical Sensor Overlay at 3 o'clock (Right side) */}
+                <g transform="translate(200, 200)">
+                  {/* Sensor Body */}
+                  <rect x="70" y="-20" width="70" height="85" fill="rgba(255, 255, 255, 0.05)" stroke="#334155" strokeWidth="2" rx="4" />
+                  
+                  {/* Z Sensor - Inner Track */}
+                  <circle cx="90" cy="0" r="5" fill={curSignals.Z ? '#22c55e' : '#14532d'} stroke="#000" strokeWidth="1"/>
+                  <text x="86" y="-10" fill="#22c55e" fontSize="10" fontFamily="monospace">Z</text>
+
+                  {/* A & B Sensors - Outer Track */}
+                  <g stroke="#000" strokeWidth="1">
+                    {/* Sensor A exactly at 0 degrees */}
+                    <circle cx="120" cy="0" r="5" fill={curSignals.A ? '#ef4444' : '#7f1d1d'} />
+                    {/* Sensor B offset by 2.5 degrees + 2 cycles (22.5 degrees physically) */}
+                    <circle 
+                      cx={120 * Math.cos((offsetB + degPerCycle * 2) * Math.PI / 180)} 
+                      cy={120 * Math.sin((offsetB + degPerCycle * 2) * Math.PI / 180)} 
+                      r="5" 
+                      fill={curSignals.B ? '#3b82f6' : '#1e3a8a'} 
+                    />
+                  </g>
+                  
+                  {/* Labels for A & B */}
+                  <text x="128" y="4" fill="#ef4444" fontSize="10" fontFamily="monospace">A</text>
+                  <text 
+                    x={120 * Math.cos((offsetB + degPerCycle * 2) * Math.PI / 180) + 8} 
+                    y={120 * Math.sin((offsetB + degPerCycle * 2) * Math.PI / 180) + 4} 
+                    fill="#3b82f6" 
+                    fontSize="10" 
+                    fontFamily="monospace">B</text>
+                  
+                  <text x="75" y="60" fill="#64748b" fontSize="10" fontFamily="monospace">SENSORS</text>
+                </g>
+              </svg>
+            </div>
+
+            {/* Controls */}
+            <div className="mt-6 space-y-4">
+              <div className="flex items-center justify-between bg-slate-900 p-4 rounded-lg">
+                <span className="text-slate-400 font-medium">Motor Control</span>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => setDirection(-1)} 
+                    className={`p-2 rounded ${direction === -1 ? 'bg-indigo-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+                    title="Counter-Clockwise"
+                  >
+                    <RotateCcw className="w-5 h-5" />
+                  </button>
+                  <button 
+                    onClick={() => setIsSpinning(!isSpinning)} 
+                    className={`px-6 py-2 rounded font-bold flex items-center transition-colors ${isSpinning ? 'bg-rose-600 hover:bg-rose-700 text-white' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}
+                  >
+                    {isSpinning ? <><Pause className="w-5 h-5 mr-2"/> Stop</> : <><Play className="w-5 h-5 mr-2"/> Spin</>}
+                  </button>
+                  <button 
+                    onClick={() => setDirection(1)} 
+                    className={`p-2 rounded ${direction === 1 ? 'bg-indigo-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+                    title="Clockwise"
+                  >
+                    <RotateCw className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="flex justify-between text-sm text-slate-400 mb-2">
+                  <span>Fine Manual Rotation</span>
+                  <span>{(((-angle % 360) + 360) % 360).toFixed(1)}°</span>
+                </label>
+                <input 
+                  type="range" 
+                  min="-360" max="360" step="0.1"
+                  value={isSpinning ? angle % 360 : angle} 
+                  onChange={(e) => {
+                    setIsSpinning(false);
+                    setAngle(parseFloat(e.target.value));
+                    exactAngleRef.current = parseFloat(e.target.value);
+                  }}
+                  className="w-full accent-indigo-500 cursor-ew-resize"
+                />
+              </div>
+
+              <div>
+                <label className="flex justify-between text-sm text-slate-400 mb-2">
+                  <span>Motor Speed</span>
+                  <span>{speedMultiplier.toFixed(1)}x</span>
+                </label>
+                <input 
+                  type="range" 
+                  min="0.1" max="4" step="0.1"
+                  value={speedMultiplier} 
+                  onChange={(e) => setSpeedMultiplier(parseFloat(e.target.value))}
+                  className="w-full accent-indigo-500"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Right Column: Electrical View & Logic */}
+          <div className="flex flex-col gap-8">
+            
+            {/* Oscilloscope */}
+            <div className="bg-slate-800 rounded-xl p-6 shadow-xl border border-slate-700">
+              <h2 className="text-xl font-semibold text-white mb-4">Logic Analyzer (Oscilloscope)</h2>
+              <div className="bg-slate-900 rounded-lg p-2 border border-slate-700 overflow-hidden">
+                <canvas 
+                  ref={canvasRef} 
+                  width="400" 
+                  height="240" 
+                  className="w-full h-[240px] rounded"
+                />
+              </div>
+            </div>
+
+            {/* MCU / Counter State */}
+            <div className="bg-slate-800 rounded-xl p-6 shadow-xl border border-slate-700 flex-1">
+              <h2 className="text-xl font-semibold text-white mb-4">Microcontroller Counter</h2>
+              
+              <div className="grid grid-cols-2 gap-4 mb-6">
+                <div className="bg-slate-900 p-4 rounded-lg border border-slate-700 text-center">
+                  <div className="text-slate-400 text-sm mb-1">Pulse Count (4x Mode)</div>
+                  <div className="text-4xl font-mono text-white font-bold">{pulses}</div>
+                </div>
+                <div className="bg-slate-900 p-4 rounded-lg border border-slate-700 flex flex-col justify-center items-center">
+                  <div className="text-slate-400 text-sm mb-2">Current State</div>
+                  <div className="flex gap-3 font-mono text-xl">
+                    <span className={curSignals.A ? 'text-red-400 font-bold' : 'text-slate-600'}>A:{curSignals.A}</span>
+                    <span className={curSignals.B ? 'text-blue-400 font-bold' : 'text-slate-600'}>B:{curSignals.B}</span>
+                    <span className={curSignals.Z ? 'text-green-400 font-bold' : 'text-slate-600'}>Z:{curSignals.Z}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-indigo-950/30 border border-indigo-500/30 rounded-lg p-4 text-sm text-indigo-200">
+                <h3 className="font-bold text-indigo-300 mb-2">How Quadrature works:</h3>
+                <ul className="list-disc pl-5 space-y-1">
+                  <li>Channels <strong>A</strong> and <strong>B</strong> are physically offset by 90 electrical degrees.</li>
+                  <li>When spinning <strong>Clockwise</strong>, Channel A leads B (A goes high, then B goes high).</li>
+                  <li>When spinning <strong>Counter-Clockwise</strong>, Channel B leads A.</li>
+                  <li>By comparing the previous state to the new state whenever a transition happens, the microcontroller knows whether to add or subtract from the pulse count!</li>
+                  <li>The <strong>Z</strong> (Index) pulse fires exactly once per revolution to give an absolute zero position.</li>
+                </ul>
+              </div>
+
+              <div className="mt-4 flex justify-end">
+                <button 
+                  onClick={() => { setPulses(0); setAngle(0); exactAngleRef.current = 0; }}
+                  className="text-sm px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded transition-colors"
+                >
+                  Reset Counter & Position
+                </button>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
