@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Robotics Color Space Explorer</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Plotly.js for 2D/3D Graphing -->
+    <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+    <style>
+        body { background-color: #f3f4f6; }
+        .canvas-container { position: relative; display: inline-block; cursor: crosshair; }
+        #overlay-canvas { position: absolute; top: 0; left: 0; pointer-events: none; }
+        .tab-btn { transition: all 0.2s; }
+        .tab-btn.active { border-bottom: 2px solid #2563eb; color: #2563eb; font-weight: bold; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; display: none; margin: 0 auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="text-gray-800 font-sans h-screen flex flex-col">
+
+    <!-- Header -->
+    <header class="bg-blue-900 text-white p-4 shadow-md flex justify-between items-center shrink-0">
+        <h1 class="text-2xl font-bold tracking-wide">Concepts of Robotics: Color Spaces</h1>
+        <div class="flex gap-2 items-center">
+            <label for="image-url" class="text-sm">Image URL / Path:</label>
+            <!-- Default image is a highly colorful Unsplash photo. Change this to a local path like './images/pic1.jpg' -->
+            <input type="text" id="image-url" value="https://images.unsplash.com/photo-1525909002-1b05e0c869d8?ixlib=rb-4.0.3&auto=format&fit=crop&w=600&q=80" 
+                   class="px-2 py-1 rounded text-black w-64 text-sm" placeholder="./images/my_image.jpg">
+            <button onclick="loadImage()" class="bg-blue-600 hover:bg-blue-500 px-3 py-1 rounded text-sm font-semibold transition">Load</button>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col md:flex-row p-4 gap-6 overflow-hidden">
+        
+        <!-- Left Column: Image & ROI Selection -->
+        <div class="w-full md:w-1/3 flex flex-col gap-4 overflow-y-auto">
+            <div class="bg-white p-4 rounded-lg shadow border border-gray-200">
+                <h2 class="text-lg font-semibold mb-2">Original Image (Source)</h2>
+                <p class="text-xs text-gray-500 mb-3">Click and drag on the image to select a Region of Interest (ROI). The visualizations will update automatically.</p>
+                
+                <div class="canvas-container w-full" id="img-wrapper">
+                    <canvas id="main-canvas" class="max-w-full rounded border border-gray-300"></canvas>
+                    <canvas id="overlay-canvas" class="max-w-full rounded"></canvas>
+                </div>
+                
+                <div class="mt-4 flex justify-between items-center">
+                    <span id="roi-status" class="text-sm font-mono text-blue-600">Full Image Selected</span>
+                    <button onclick="resetROI()" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1 rounded text-sm transition">Reset ROI</button>
+                </div>
+            </div>
+
+            <!-- Educational Info Box -->
+            <div class="bg-blue-50 p-4 rounded-lg shadow border border-blue-100 text-sm">
+                <h3 class="font-bold text-blue-800 mb-1">Color Space Notes</h3>
+                <ul class="list-disc pl-5 text-blue-900 space-y-1">
+                    <li><b>RGB channels</b> are shown using standard additive lighting (Black = 0, Bright Color = 255) to reflect how camera sensors capture light.</li>
+                    <li><b>HSV</b> (Hue, Saturation, Value) aligns closer to human perception.</li>
+                    <li>Subsampling is applied automatically to 3D plots to maintain browser performance.</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Right Column: Visualizations -->
+        <div class="w-full md:w-2/3 bg-white rounded-lg shadow border border-gray-200 flex flex-col overflow-hidden">
+            
+            <!-- Tabs -->
+            <div class="flex border-b bg-gray-50 shrink-0 overflow-x-auto">
+                <button class="tab-btn active px-4 py-3 text-sm" onclick="switchTab('rgb-channels', this)">RGB Channels</button>
+                <button class="tab-btn px-4 py-3 text-sm" onclick="switchTab('rgb-3d', this)">RGB 3D Cube</button>
+                <button class="tab-btn px-4 py-3 text-sm" onclick="switchTab('rgb-2d', this)">RGB 2D Planes</button>
+                <button class="tab-btn px-4 py-3 text-sm" onclick="switchTab('hsv-channels', this)">HSV Channels</button>
+                <button class="tab-btn px-4 py-3 text-sm" onclick="switchTab('hsv-3d', this)">HSV 3D Cylinder</button>
+            </div>
+
+            <!-- Visualization Content -->
+            <div class="flex-1 p-4 overflow-y-auto relative" id="viz-content">
+                <div id="loader" class="loader absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"></div>
+                
+                <!-- Tab 1: RGB Channels -->
+                <div id="rgb-channels" class="viz-pane h-full flex flex-col gap-4">
+                    <h2 class="text-xl font-semibold text-center mb-2">RGB Color Channels</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 h-full">
+                        <div class="flex flex-col items-center gap-2">
+                            <span class="font-bold text-red-600">Red Channel</span>
+                            <canvas id="canv-r" class="max-w-full border border-gray-300 rounded shadow-sm object-contain max-h-[60vh]"></canvas>
+                        </div>
+                        <div class="flex flex-col items-center gap-2">
+                            <span class="font-bold text-green-600">Green Channel</span>
+                            <canvas id="canv-g" class="max-w-full border border-gray-300 rounded shadow-sm object-contain max-h-[60vh]"></canvas>
+                        </div>
+                        <div class="flex flex-col items-center gap-2">
+                            <span class="font-bold text-blue-600">Blue Channel</span>
+                            <canvas id="canv-b" class="max-w-full border border-gray-300 rounded shadow-sm object-contain max-h-[60vh]"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 2: RGB 3D -->
+                <div id="rgb-3d" class="viz-pane h-full hidden">
+                    <h2 class="text-xl font-semibold text-center mb-2">3D RGB Color Cube</h2>
+                    <p class="text-center text-sm text-gray-500 mb-2">Drag to rotate. X = Red, Y = Green, Z = Blue.</p>
+                    <div id="plotly-rgb-3d" class="w-full h-[60vh]"></div>
+                </div>
+
+                <!-- Tab 3: RGB 2D Orthogonal -->
+                <div id="rgb-2d" class="viz-pane h-full hidden">
+                    <h2 class="text-xl font-semibold text-center mb-2">Orthogonal RGB Planes</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-2 h-[60vh]">
+                        <div id="plotly-rg" class="w-full h-full"></div>
+                        <div id="plotly-gb" class="w-full h-full"></div>
+                        <div id="plotly-br" class="w-full h-full"></div>
+                    </div>
+                </div>
+
+                <!-- Tab 4: HSV Channels -->
+                <div id="hsv-channels" class="viz-pane h-full hidden flex flex-col gap-4">
+                    <h2 class="text-xl font-semibold text-center mb-2">HSV Color Channels</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 h-full">
+                        <div class="flex flex-col items-center gap-2">
+                            <span class="font-bold text-indigo-600">Hue (Pure Color)</span>
+                            <canvas id="canv-h" class="max-w-full border border-gray-300 rounded shadow-sm object-contain max-h-[60vh]"></canvas>
+                        </div>
+                        <div class="flex flex-col items-center gap-2">
+                            <span class="font-bold text-gray-700">Saturation (Grayscale)</span>
+                            <canvas id="canv-s" class="max-w-full border border-gray-300 rounded shadow-sm object-contain max-h-[60vh]"></canvas>
+                        </div>
+                        <div class="flex flex-col items-center gap-2">
+                            <span class="font-bold text-gray-900">Value / Intensity</span>
+                            <canvas id="canv-v" class="max-w-full border border-gray-300 rounded shadow-sm object-contain max-h-[60vh]"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 5: HSV 3D Cylinder -->
+                <div id="hsv-3d" class="viz-pane h-full hidden">
+                    <h2 class="text-xl font-semibold text-center mb-2">3D HSV Cylinder</h2>
+                    <p class="text-center text-sm text-gray-500 mb-2">Angle = Hue, Radius = Saturation, Height = Value.</p>
+                    <div id="plotly-hsv-3d" class="w-full h-[60vh]"></div>
+                </div>
+
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // --- State & Setup ---
+        const mainCanvas = document.getElementById('main-canvas');
+        const overlayCanvas = document.getElementById('overlay-canvas');
+        const mainCtx = mainCanvas.getContext('2d', { willReadFrequently: true });
+        const overlayCtx = overlayCanvas.getContext('2d');
+        
+        let currentImage = new Image();
+        let roi = { x: 0, y: 0, w: 0, h: 0 };
+        let activeTab = 'rgb-channels';
+        let isDragging = false;
+        let startX, startY;
+
+        // Constants
+        const MAX_PLOT_POINTS = 2000; // Prevent browser crash on large ROI
+
+        // --- Init ---
+        window.onload = () => {
+            setupCanvasEvents();
+            loadImage();
+        };
+
+        // --- Image Loading ---
+        function loadImage() {
+            const url = document.getElementById('image-url').value;
+            currentImage.crossOrigin = "Anonymous"; // Required for fetching from CDNs/external
+            currentImage.src = url;
+            currentImage.onload = () => {
+                // Scale image down if it's too large to fit reasonably in memory
+                const MAX_WIDTH = 600;
+                let width = currentImage.width;
+                let height = currentImage.height;
+                
+                if (width > MAX_WIDTH) {
+                    height = Math.floor(height * (MAX_WIDTH / width));
+                    width = MAX_WIDTH;
+                }
+
+                mainCanvas.width = width;
+                mainCanvas.height = height;
+                overlayCanvas.width = width;
+                overlayCanvas.height = height;
+
+                mainCtx.drawImage(currentImage, 0, 0, width, height);
+                resetROI();
+            };
+            currentImage.onerror = () => {
+                alert("Failed to load image. If using a local URL, ensure it is correct. If using an external URL, it might be blocked by CORS.");
+            };
+        }
+
+        // --- ROI Selection Logic ---
+        function setupCanvasEvents() {
+            overlayCanvas.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                const rect = overlayCanvas.getBoundingClientRect();
+                const scaleX = overlayCanvas.width / rect.width;
+                const scaleY = overlayCanvas.height / rect.height;
+                startX = (e.clientX - rect.left) * scaleX;
+                startY = (e.clientY - rect.top) * scaleY;
+            });
+
+            overlayCanvas.addEventListener('mousemove', (e) => {
+                if (!isDragging) return;
+                const rect = overlayCanvas.getBoundingClientRect();
+                const scaleX = overlayCanvas.width / rect.width;
+                const scaleY = overlayCanvas.height / rect.height;
+                const currentX = (e.clientX - rect.left) * scaleX;
+                const currentY = (e.clientY - rect.top) * scaleY;
+
+                overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+                overlayCtx.fillStyle = 'rgba(0, 120, 255, 0.2)';
+                overlayCtx.strokeStyle = 'rgba(0, 120, 255, 0.8)';
+                overlayCtx.lineWidth = 2;
+                
+                const w = currentX - startX;
+                const h = currentY - startY;
+                overlayCtx.fillRect(startX, startY, w, h);
+                overlayCtx.strokeRect(startX, startY, w, h);
+            });
+
+            overlayCanvas.addEventListener('mouseup', (e) => {
+                isDragging = false;
+                const rect = overlayCanvas.getBoundingClientRect();
+                const scaleX = overlayCanvas.width / rect.width;
+                const scaleY = overlayCanvas.height / rect.height;
+                const endX = (e.clientX - rect.left) * scaleX;
+                const endY = (e.clientY - rect.top) * scaleY;
+
+                let x = Math.min(startX, endX);
+                let y = Math.min(startY, endY);
+                let w = Math.abs(endX - startX);
+                let h = Math.abs(endY - startY);
+
+                // Ignore tiny clicks
+                if (w < 5 || h < 5) {
+                    resetROI();
+                    return;
+                }
+
+                // Constrain to canvas
+                x = Math.max(0, x); y = Math.max(0, y);
+                w = Math.min(w, overlayCanvas.width - x);
+                h = Math.min(h, overlayCanvas.height - y);
+
+                roi = { Math: Math.floor(x), y: Math.floor(y), w: Math.floor(w), h: Math.floor(h) };
+                // ensure valid dimensions
+                roi.x = Math.floor(x); roi.y = Math.floor(y); roi.w = Math.floor(w); roi.h = Math.floor(h);
+
+                document.getElementById('roi-status').innerText = `ROI: [${roi.x}, ${roi.y}, ${roi.w}x${roi.h}]`;
+                updateVisualizations();
+            });
+            
+            // Handle touch events for mobile/tablet
+            overlayCanvas.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                const touch = e.touches[0];
+                const mouseEvent = new MouseEvent("mousedown", { clientX: touch.clientX, clientY: touch.clientY });
+                overlayCanvas.dispatchEvent(mouseEvent);
+            }, {passive: false});
+            overlayCanvas.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                const touch = e.touches[0];
+                const mouseEvent = new MouseEvent("mousemove", { clientX: touch.clientX, clientY: touch.clientY });
+                overlayCanvas.dispatchEvent(mouseEvent);
+            }, {passive: false});
+            overlayCanvas.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                const touch = e.changedTouches[0];
+                const mouseEvent = new MouseEvent("mouseup", { clientX: touch.clientX, clientY: touch.clientY });
+                overlayCanvas.dispatchEvent(mouseEvent);
+            }, {passive: false});
+        }
+
+        function resetROI() {
+            roi = { x: 0, y: 0, w: mainCanvas.width, h: mainCanvas.height };
+            overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+            document.getElementById('roi-status').innerText = `Full Image Selected`;
+            updateVisualizations();
+        }
+
+        // --- Color Space Math ---
+        function rgbToHsv(r, g, b) {
+            r /= 255, g /= 255, b /= 255;
+            let max = Math.max(r, g, b), min = Math.min(r, g, b);
+            let h, s, v = max;
+            let d = max - min;
+            s = max === 0 ? 0 : d / max;
+            if (max === min) {
+                h = 0; // achromatic
+            } else {
+                switch (max) {
+                    case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+                    case g: h = (b - r) / d + 2; break;
+                    case b: h = (r - g) / d + 4; break;
+                }
+                h /= 6;
+            }
+            return [h, s, v];
+        }
+
+        function hsvToRgb(h, s, v) {
+            let r, g, b;
+            let i = Math.floor(h * 6);
+            let f = h * 6 - i;
+            let p = v * (1 - s);
+            let q = v * (1 - f * s);
+            let t = v * (1 - (1 - f) * s);
+            switch (i % 6) {
+                case 0: r = v, g = t, b = p; break;
+                case 1: r = q, g = v, b = p; break;
+                case 2: r = p, g = v, b = t; break;
+                case 3: r = p, g = q, b = v; break;
+                case 4: r = t, g = p, b = v; break;
+                case 5: r = v, g = p, b = q; break;
+            }
+            return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+        }
+
+        // --- Visualization Rendering ---
+        function switchTab(tabId, btnElement) {
+            // Update UI
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            btnElement.classList.add('active');
+            
+            document.querySelectorAll('.viz-pane').forEach(pane => pane.classList.add('hidden'));
+            document.getElementById(tabId).classList.remove('hidden');
+            
+            activeTab = tabId;
+            updateVisualizations();
+        }
+
+        function showLoader(show) {
+            document.getElementById('loader').style.display = show ? 'block' : 'none';
+        }
+
+        function getPixelsFromROI() {
+            if (roi.w <= 0 || roi.h <= 0) return null;
+            return mainCtx.getImageData(roi.x, roi.y, roi.w, roi.h);
+        }
+
+        // Extracts a subset of pixels to prevent 3D plotting from crashing the browser
+        function getSubsampledPixels(imgData, maxPoints) {
+            const totalPixels = imgData.width * imgData.height;
+            const step = Math.max(1, Math.floor(totalPixels / maxPoints));
+            
+            let r = [], g = [], b = [], colors = [];
+            for (let i = 0; i < totalPixels; i += step) {
+                const idx = i * 4;
+                const pr = imgData.data[idx];
+                const pg = imgData.data[idx+1];
+                const pb = imgData.data[idx+2];
+                r.push(pr);
+                g.push(pg);
+                b.push(pb);
+                colors.push(`rgb(${pr},${pg},${pb})`);
+            }
+            return { r, g, b, colors };
+        }
+
+        function updateVisualizations() {
+            const imgData = getPixelsFromROI();
+            if (!imgData) return;
+
+            showLoader(true);
+            
+            // Allow UI to render loader before heavy processing
+            setTimeout(() => {
+                if (activeTab === 'rgb-channels') renderRGBChannels(imgData);
+                else if (activeTab === 'rgb-3d') renderRGB3D(imgData);
+                else if (activeTab === 'rgb-2d') renderRGB2D(imgData);
+                else if (activeTab === 'hsv-channels') renderHSVChannels(imgData);
+                else if (activeTab === 'hsv-3d') renderHSV3D(imgData);
+                
+                showLoader(false);
+            }, 50);
+        }
+
+        function renderRGBChannels(imgData) {
+            const w = imgData.width;
+            const h = imgData.height;
+            const len = imgData.data.length;
+
+            const rData = new ImageData(w, h);
+            const gData = new ImageData(w, h);
+            const bData = new ImageData(w, h);
+
+            for (let i = 0; i < len; i += 4) {
+                const r = imgData.data[i];
+                const g = imgData.data[i+1];
+                const b = imgData.data[i+2];
+
+                // Red Canvas (Map R to Red channel, Black to Red)
+                rData.data[i] = r;     rData.data[i+1] = 0;   rData.data[i+2] = 0;   rData.data[i+3] = 255;
+                // Green Canvas
+                gData.data[i] = 0;     gData.data[i+1] = g;   gData.data[i+2] = 0;   gData.data[i+3] = 255;
+                // Blue Canvas
+                bData.data[i] = 0;     bData.data[i+1] = 0;   bData.data[i+2] = b;   bData.data[i+3] = 255;
+            }
+
+            const cR = document.getElementById('canv-r'); cR.width = w; cR.height = h;
+            const cG = document.getElementById('canv-g'); cG.width = w; cG.height = h;
+            const cB = document.getElementById('canv-b'); cB.width = w; cB.height = h;
+
+            cR.getContext('2d').putImageData(rData, 0, 0);
+            cG.getContext('2d').putImageData(gData, 0, 0);
+            cB.getContext('2d').putImageData(bData, 0, 0);
+        }
+
+        function renderHSVChannels(imgData) {
+            const w = imgData.width;
+            const h = imgData.height;
+            const len = imgData.data.length;
+
+            const hData = new ImageData(w, h);
+            const sData = new ImageData(w, h);
+            const vData = new ImageData(w, h);
+
+            for (let i = 0; i < len; i += 4) {
+                const r = imgData.data[i];
+                const g = imgData.data[i+1];
+                const b = imgData.data[i+2];
+
+                const [hue, sat, val] = rgbToHsv(r, g, b);
+
+                // Hue Map: Show pure hue color (S=1, V=1)
+                const pureHueRGB = hsvToRgb(hue, 1, 1);
+                hData.data[i] = pureHueRGB[0];
+                hData.data[i+1] = pureHueRGB[1];
+                hData.data[i+2] = pureHueRGB[2];
+                hData.data[i+3] = 255;
+
+                // Saturation Map: Grayscale
+                const sGray = sat * 255;
+                sData.data[i] = sGray; sData.data[i+1] = sGray; sData.data[i+2] = sGray; sData.data[i+3] = 255;
+
+                // Value Map: Grayscale
+                const vGray = val * 255;
+                vData.data[i] = vGray; vData.data[i+1] = vGray; vData.data[i+2] = vGray; vData.data[i+3] = 255;
+            }
+
+            const cH = document.getElementById('canv-h'); cH.width = w; cH.height = h;
+            const cS = document.getElementById('canv-s'); cS.width = w; cS.height = h;
+            const cV = document.getElementById('canv-v'); cV.width = w; cV.height = h;
+
+            cH.getContext('2d').putImageData(hData, 0, 0);
+            cS.getContext('2d').putImageData(sData, 0, 0);
+            cV.getContext('2d').putImageData(vData, 0, 0);
+        }
+
+        function renderRGB3D(imgData) {
+            const data = getSubsampledPixels(imgData, MAX_PLOT_POINTS);
+            
+            const trace = {
+                x: data.r, y: data.g, z: data.b,
+                mode: 'markers',
+                marker: { size: 4, color: data.colors, opacity: 0.8 },
+                type: 'scatter3d'
+            };
+
+            const layout = {
+                margin: { l: 0, r: 0, b: 0, t: 0 },
+                scene: {
+                    xaxis: { title: 'Red', range: [0, 255] },
+                    yaxis: { title: 'Green', range: [0, 255] },
+                    zaxis: { title: 'Blue', range: [0, 255] },
+                    camera: { eye: {x: 1.5, y: 1.5, z: 1.5} }
+                }
+            };
+
+            Plotly.react('plotly-rgb-3d', [trace], layout, {responsive: true});
+        }
+
+        function renderRGB2D(imgData) {
+            const data = getSubsampledPixels(imgData, MAX_PLOT_POINTS);
+
+            const layoutBase = {
+                margin: { l: 40, r: 20, b: 40, t: 20 },
+                showlegend: false,
+                xaxis: { range: [0, 255] },
+                yaxis: { range: [0, 255] }
+            };
+
+            // Red vs Green
+            Plotly.react('plotly-rg', [{
+                x: data.r, y: data.g, mode: 'markers', type: 'scatter', marker: { color: data.colors, size: 5 }
+            }], { ...layoutBase, xaxis: {title: 'Red'}, yaxis: {title: 'Green'} }, {responsive: true});
+
+            // Green vs Blue
+            Plotly.react('plotly-gb', [{
+                x: data.g, y: data.b, mode: 'markers', type: 'scatter', marker: { color: data.colors, size: 5 }
+            }], { ...layoutBase, xaxis: {title: 'Green'}, yaxis: {title: 'Blue'} }, {responsive: true});
+
+            // Blue vs Red
+            Plotly.react('plotly-br', [{
+                x: data.b, y: data.r, mode: 'markers', type: 'scatter', marker: { color: data.colors, size: 5 }
+            }], { ...layoutBase, xaxis: {title: 'Blue'}, yaxis: {title: 'Red'} }, {responsive: true});
+        }
+
+        function renderHSV3D(imgData) {
+            const data = getSubsampledPixels(imgData, MAX_PLOT_POINTS);
+            
+            // Convert to cylindrical coordinates for 3D plot
+            let x = [], y = [], z = [];
+            for (let i = 0; i < data.r.length; i++) {
+                const [h, s, v] = rgbToHsv(data.r[i], data.g[i], data.b[i]);
+                // Angle based on Hue (0 to 1 mapped to 0 to 2PI)
+                const angle = h * 2 * Math.PI;
+                // Radius based on Saturation
+                x.push(s * Math.cos(angle));
+                y.push(s * Math.sin(angle));
+                // Height based on Value
+                z.push(v);
+            }
+
+            const trace = {
+                x: x, y: y, z: z,
+                mode: 'markers',
+                marker: { size: 4, color: data.colors, opacity: 0.8 },
+                type: 'scatter3d'
+            };
+
+            const layout = {
+                margin: { l: 0, r: 0, b: 0, t: 0 },
+                scene: {
+                    xaxis: { title: 'Sat * cos(H)', range: [-1, 1] },
+                    yaxis: { title: 'Sat * sin(H)', range: [-1, 1] },
+                    zaxis: { title: 'Value', range: [0, 1] },
+                    camera: { eye: {x: 1.5, y: 1.5, z: 1.2} }
+                }
+            };
+
+            Plotly.react('plotly-hsv-3d', [trace], layout, {responsive: true});
+        }
+
+    </script>
+</body>
+</html>
