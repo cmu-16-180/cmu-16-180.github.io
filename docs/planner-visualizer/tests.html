@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Robot Motion Planner Tests</title>
+    <!-- Mocha CSS -->
+    <link href="https://unpkg.com/mocha@10/mocha.css" rel="stylesheet" />
+</head>
+<body>
+    <div id="mocha"></div>
+    
+    <!-- UI Test Fixture (Hidden) -->
+    <div id="ui-fixture" style="position: absolute; top: -10000px; left: -10000px; visibility: hidden;"></div>
+
+    <!-- Mocha / Chai -->
+    <script src="https://unpkg.com/chai@4/chai.js"></script>
+    <script src="https://unpkg.com/mocha@10/mocha.js"></script>
+
+    <script class="mocha-init">
+        mocha.setup('bdd');
+        mocha.checkLeaks();
+    </script>
+
+    <!-- LOAD TESTS -->
+    <script type="module">
+        import './tests/utils/geometry.test.js';
+        import './tests/core/sampling.test.js';
+        import './tests/core/graph.test.js';
+        import './tests/core/scenarios.test.js';
+        import './tests/core/random.test.js'; 
+        import './tests/core/scenarios_refinement.test.js';
+
+        import './tests/utils/collision.test.js';
+        import './tests/utils/dubins.test.js';
+        import './tests/utils/reeds_shepp.test.js'; // NEW
+        
+        import './tests/robots/holonomic2d.test.js';
+        import './tests/robots/dubins.test.js'; 
+        import './tests/robots/reeds_shepp.test.js'; 
+        
+        import './tests/planners/rrt.test.js';
+        import './tests/planners/rrt_connect.test.js';
+        import './tests/planners/reconnect.test.js';
+        
+        import './tests/controller/simulation.test.js';
+        
+        import './tests/view/ui.test.js';
+        import './tests/view/view_options.test.js';
+        import './tests/view/parameter_consistency.test.js';
+        import './tests/view/run_button.test.js';
+        import './tests/view/rejected_samples.test.js';
+        import './tests/view/interactive.test.js';
+        import './tests/view/dynamic_updates.test.js';
+        import './tests/view/renderer.test.js';
+        import './tests/view/orientation.test.js';
+        import './tests/view/interaction.test.js';
+        import './tests/view/robot_switching.test.js';
+
+        mocha.run();
+    </script>
+</body>
+</html>

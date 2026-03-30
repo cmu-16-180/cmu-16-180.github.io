@@ -1,0 +1,152 @@
+/* =========================================
+   SVG Visualization Styles
+   ========================================= */
+
+/* SVG Element Classes */
+.svg-obstacle {
+    fill: var(--color-obstacle);
+    stroke: none;
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+.svg-obstacle:hover { opacity: 0.8; }
+
+.svg-cost-region {
+    fill: var(--color-cost-region);
+    stroke: none;
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+.svg-cost-region:hover { opacity: 0.8; }
+
+.svg-robot {
+    stroke: var(--color-robot-stroke);
+    stroke-width: 2px;
+    fill: var(--color-robot-fill);
+    cursor: pointer;
+}
+
+.svg-goal {
+    stroke: var(--color-goal-stroke);
+    stroke-width: 3px;
+    fill: var(--color-goal-fill);
+    cursor: pointer;
+}
+
+.svg-graph-edge {
+    stroke: var(--color-graph);
+    stroke-width: 1.5px;
+    fill: none;
+    pointer-events: none;
+    transition: stroke 0.2s; /* Smooth fade from highlight color */
+}
+
+.svg-graph-node {
+    fill: var(--color-graph);
+    r: 3px;
+    pointer-events: none;
+}
+
+.svg-reverse-edge {
+    stroke: var(--color-reverse-tree);
+    stroke-width: 1.5px;
+    fill: none;
+    pointer-events: none;
+}
+
+.svg-reverse-node {
+    fill: var(--color-reverse-tree);
+    r: 3px;
+    pointer-events: none;
+}
+
+.svg-rejected-edge {
+    stroke: var(--color-rejected);
+    stroke-width: 1px;
+    fill: none;
+    pointer-events: none;
+}
+
+.svg-rejected-node {
+    fill: var(--color-rejected);
+    r: 2px;
+    pointer-events: none;
+}
+
+.svg-solution {
+    stroke: var(--color-solution);
+    stroke-width: 4px;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    pointer-events: none;
+}
+
+.svg-highlight {
+    stroke: var(--color-highlight);
+    stroke-width: 3px;
+    fill: none;
+    pointer-events: none;
+}
+
+.svg-ellipse {
+    stroke: var(--color-solution);
+    stroke-width: 1px;
+    stroke-dasharray: 4 4;
+    fill: none;
+    opacity: 0.4;
+    pointer-events: none;
+}
+
+/* =========================================
+   UI Component Styles
+   ========================================= */
+
+/* Base Slider Reset */
+input[type=range] {
+    -webkit-appearance: none; 
+    width: 100%; 
+    background: transparent; 
+}
+
+input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    height: 16px;
+    width: 16px;
+    border-radius: 50%;
+    cursor: pointer;
+    margin-top: -6px; 
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+
+input[type=range]::-webkit-slider-runnable-track {
+    width: 100%;
+    height: 4px;
+    cursor: pointer;
+    background: #E5E7EB;
+    border-radius: 2px;
+}
+
+/* Scenario Theme (Blue) */
+.slider-scenario::-webkit-slider-thumb { background: #60A5FA; }
+.slider-scenario:focus::-webkit-slider-thumb { ring: 2px solid #93C5FD; }
+
+/* Algorithm Theme (Red) */
+.slider-algorithm::-webkit-slider-thumb { background: #EF4444; }
+
+/* Execution Theme (Green) */
+.slider-execution::-webkit-slider-thumb { background: #22C55E; }
+
+/* Properties Theme (Purple) */
+.slider-properties::-webkit-slider-thumb { background: #9333EA; }
+
+/* View Options Theme (Brown) - Checkbox */
+.checkbox-view {
+     accent-color: #B45309;
+}
+
+/* Toolbar Buttons */
+.tool-btn.active {
+    background-color: #DBEAFE; /* blue-100 */
+    color: #2563EB; /* blue-600 */
+}
